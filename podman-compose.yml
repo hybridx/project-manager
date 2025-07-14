@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: ai-pm-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - ai-pm-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ai-pm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-pm-network
+
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: ai-pm-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+    networks:
+      - ai-pm-network
+
+  gateway:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    container_name: ai-pm-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/ai-pm?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - AI_SERVICE_URL=http://ai-processor:8001
+      - JIRA_SERVICE_URL=http://jira-integration:8002
+      - CALENDAR_SERVICE_URL=http://calendar-service:8003
+    depends_on:
+      - mongodb
+      - redis
+      - ai-processor
+    networks:
+      - ai-pm-network
+
+  ai-processor:
+    build:
+      context: ./services/ai-processor
+      dockerfile: Dockerfile
+    container_name: ai-pm-ai-processor
+    ports:
+      - "8001:8001"
+    environment:
+      - OLLAMA_BASE_URL=http://host.containers.internal:11434
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/ai-pm?authSource=admin
+    depends_on:
+      - mongodb
+    networks:
+      - ai-pm-network
+
+  jira-integration:
+    build:
+      context: ./services/jira-integration
+      dockerfile: Dockerfile
+    container_name: ai-pm-jira-integration
+    ports:
+      - "8002:8002"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/ai-pm?authSource=admin
+    depends_on:
+      - mongodb
+    networks:
+      - ai-pm-network
+
+  calendar-service:
+    build:
+      context: ./services/calendar-service
+      dockerfile: Dockerfile
+    container_name: ai-pm-calendar-service
+    ports:
+      - "8003:8003"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/ai-pm?authSource=admin
+    depends_on:
+      - mongodb
+    networks:
+      - ai-pm-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  ai-pm-network:
+    driver: bridge 

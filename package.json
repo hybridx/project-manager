@@ -1,0 +1,35 @@
+{
+  "name": "ai-project-manager",
+  "version": "1.0.0",
+  "description": "AI-driven project management system with Jira integration",
+  "private": true,
+  "workspaces": [
+    "services/frontend",
+    "services/gateway",
+    "services/ai-processor",
+    "services/jira-integration",
+    "services/calendar-service"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:gateway\" \"npm run dev:frontend\" \"npm run dev:ai\" \"npm run dev:jira\" \"npm run dev:calendar\"",
+    "dev:frontend": "cd services/frontend && npm run dev",
+    "dev:gateway": "cd services/gateway && npm run dev",
+    "dev:ai": "cd services/ai-processor && python main.py",
+    "dev:jira": "cd services/jira-integration && npm run dev",
+    "dev:calendar": "cd services/calendar-service && npm run dev",
+    "build": "npm run build:frontend && npm run build:services",
+    "build:frontend": "cd services/frontend && npm run build",
+    "build:services": "cd services/database && podman-compose build",
+    "test": "npm run test:frontend && npm run test:services",
+    "test:frontend": "cd services/frontend && npm test",
+    "test:services": "cd services/gateway && npm test && cd ../jira-integration && npm test",
+    "start": "cd services/database && podman-compose up -d",
+    "stop": "cd services/database && podman-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": ["ai", "project-management", "jira", "automation", "nlp"],
+  "author": "AI Project Manager Team",
+  "license": "MIT"
+} 
