@@ -12,6 +12,9 @@ class DocumentType(str, Enum):
     RFC = "rfc"
     REQUIREMENTS = "requirements"
     FEATURE_SPEC = "feature_spec"
+    DESIGN_DOC = "design_doc"
+    ARCHITECTURE_DOC = "architecture_doc"
+    TECHNICAL_SPEC = "technical_spec"
     MARKDOWN = "markdown"
     TEXT = "text"
     UNKNOWN = "unknown"
@@ -293,6 +296,233 @@ class ProjectConfiguration(BaseModel):
                 "jira_project_key": "AIPM",
                 "default_priority": "medium",
                 "team_members": ["alice@example.com", "bob@example.com"]
+            }
+        }
+    )
+
+
+# Design Document Processing Schemas
+
+class IssueType(str, Enum):
+    FEATURE = "feature"
+    TASK = "task"
+    BUG = "bug"
+    RESEARCH = "research"
+    DOCUMENTATION = "documentation"
+    TESTING = "testing"
+    INFRASTRUCTURE = "infrastructure"
+
+
+class ComplexityLevel(str, Enum):
+    SIMPLE = "simple"
+    MEDIUM = "medium"
+    COMPLEX = "complex"
+
+
+class DevelopmentIssue(BaseModel):
+    """Represents a granular development issue generated from design documents"""
+    id: str = Field(..., description="Unique issue identifier")
+    title: str = Field(..., description="Issue title (max 60 chars)")
+    description: str = Field(..., description="Detailed issue description")
+    issue_type: IssueType = Field(..., description="Type of issue")
+    priority: Priority = Field(..., description="Issue priority")
+    component: str = Field(..., description="Component or functional area")
+    estimated_hours: float = Field(..., description="Estimated effort in hours")
+    dependencies: List[str] = Field(default_factory=list, description="Issue IDs this depends on")
+    labels: List[str] = Field(default_factory=list, description="Issue labels/tags")
+    acceptance_criteria: List[str] = Field(default_factory=list, description="Acceptance criteria")
+    created_at: datetime = Field(default_factory=get_utc_now)
+    
+    @field_validator('estimated_hours')
+    @classmethod
+    def validate_estimated_hours(cls, v):
+        if not 0.5 <= v <= 40:
+            raise ValueError("Estimated hours must be between 0.5 and 40")
+        return v
+    
+    @field_validator('title')
+    @classmethod
+    def validate_title_length(cls, v):
+        if len(v) > 60:
+            raise ValueError("Title must be 60 characters or less")
+        return v
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "auth_setup_abc123",
+                "title": "Implement user authentication service",
+                "description": "Create JWT-based authentication service with login/logout",
+                "issue_type": "feature",
+                "priority": "high",
+                "component": "Authentication",
+                "estimated_hours": 6.0,
+                "dependencies": ["security_config_xyz789"],
+                "labels": ["authentication", "security", "backend"],
+                "acceptance_criteria": [
+                    "JWT token generation working",
+                    "Login endpoint functional",
+                    "Logout endpoint functional",
+                    "Unit tests pass"
+                ]
+            }
+        }
+    )
+
+
+class FunctionalArea(BaseModel):
+    """Represents a functional area of the system that can be developed independently"""
+    name: str = Field(..., description="Functional area name")
+    description: str = Field(..., description="What this area is responsible for")
+    components: List[str] = Field(default_factory=list, description="System components in this area")
+    dependencies: List[str] = Field(default_factory=list, description="Other areas this depends on")
+    priority: Priority = Field(default=Priority.MEDIUM, description="Development priority")
+    complexity: ComplexityLevel = Field(default=ComplexityLevel.MEDIUM, description="Implementation complexity")
+    estimated_issues: int = Field(default=0, description="Estimated number of issues")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "name": "User Management",
+                "description": "Handle user registration, authentication, and profile management",
+                "components": ["UserService", "AuthController", "UserRepository"],
+                "dependencies": ["Database Layer"],
+                "priority": "high",
+                "complexity": "medium",
+                "estimated_issues": 8
+            }
+        }
+    )
+
+
+class DesignAnalysis(BaseModel):
+    """Analysis results from processing a design document"""
+    system_components: List[str] = Field(default_factory=list, description="Major system components")
+    apis_interfaces: List[str] = Field(default_factory=list, description="APIs and interfaces")
+    data_models: List[str] = Field(default_factory=list, description="Data structures and models")
+    external_dependencies: List[str] = Field(default_factory=list, description="External dependencies")
+    technical_requirements: List[str] = Field(default_factory=list, description="Non-functional requirements")
+    user_interactions: List[str] = Field(default_factory=list, description="User flows and interactions")
+    business_logic: List[str] = Field(default_factory=list, description="Core business rules")
+    infrastructure_needs: List[str] = Field(default_factory=list, description="Infrastructure requirements")
+    complexity_assessment: ComplexityLevel = Field(default=ComplexityLevel.MEDIUM, description="Overall complexity")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "system_components": ["UserService", "PaymentService", "NotificationService"],
+                "apis_interfaces": ["GET /api/users", "POST /api/auth/login"],
+                "data_models": ["User", "Payment", "Notification"],
+                "external_dependencies": ["Stripe API", "SendGrid", "Redis"],
+                "technical_requirements": ["99.9% uptime", "< 200ms response time"],
+                "complexity_assessment": "medium"
+            }
+        }
+    )
+
+
+class ImplementationRoadmap(BaseModel):
+    """Implementation roadmap with phases and timelines"""
+    phases: List[Dict[str, Any]] = Field(default_factory=list, description="Development phases")
+    total_estimated_hours: float = Field(..., description="Total estimated effort")
+    total_issues: int = Field(..., description="Total number of issues")
+    estimated_duration_weeks: Optional[int] = Field(None, description="Estimated duration in weeks")
+    critical_path: List[str] = Field(default_factory=list, description="Critical path issue IDs")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "phases": [
+                    {
+                        "name": "Phase 1: Foundation",
+                        "description": "Setup infrastructure and core services",
+                        "issues": 5,
+                        "estimated_hours": 40.0,
+                        "issue_ids": ["infra_setup_abc123", "db_setup_def456"]
+                    }
+                ],
+                "total_estimated_hours": 120.0,
+                "total_issues": 25,
+                "estimated_duration_weeks": 6
+            }
+        }
+    )
+
+
+class DesignDocumentProcessingRequest(BaseModel):
+    """Request for processing a design document into issues"""
+    content: str = Field(..., description="Design document content")
+    document_name: str = Field(..., description="Document name")
+    document_type: DocumentType = Field(default=DocumentType.DESIGN_DOC, description="Type of design document")
+    project_id: Optional[str] = Field(None, description="Associated project ID")
+    processing_options: Dict[str, Any] = Field(default_factory=dict, description="Processing configuration")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "content": "# E-commerce Platform Design\n\nThis document outlines...",
+                "document_name": "ecommerce_design.md",
+                "document_type": "design_doc",
+                "project_id": "ecom_proj_123",
+                "processing_options": {
+                    "max_issues_per_area": 8,
+                    "include_cross_cutting": True,
+                    "generate_roadmap": True
+                }
+            }
+        }
+    )
+
+
+class DesignDocumentProcessingResponse(BaseModel):
+    """Response from design document processing"""
+    success: bool = Field(..., description="Whether processing was successful")
+    document_name: str = Field(..., description="Processed document name")
+    project_id: Optional[str] = Field(None, description="Associated project ID")
+    total_issues: int = Field(..., description="Total number of issues generated")
+    design_analysis: DesignAnalysis = Field(..., description="Analysis of the design document")
+    functional_areas: List[FunctionalArea] = Field(..., description="Identified functional areas")
+    issues: List[DevelopmentIssue] = Field(..., description="Generated development issues")
+    implementation_roadmap: ImplementationRoadmap = Field(..., description="Implementation roadmap")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    processing_time: float = Field(..., description="Processing time in seconds")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "document_name": "ecommerce_design.md",
+                "project_id": "ecom_proj_123",
+                "total_issues": 32,
+                "metadata": {
+                    "processing_timestamp": "2024-01-15T10:30:00Z",
+                    "document_complexity": "medium",
+                    "estimated_total_hours": 240.0
+                },
+                "processing_time": 15.3
+            }
+        }
+    )
+
+
+class IssueValidationResult(BaseModel):
+    """Result of validating generated issues"""
+    is_valid: bool = Field(..., description="Whether all issues are valid")
+    total_issues: int = Field(..., description="Total number of issues validated")
+    valid_issues: int = Field(..., description="Number of valid issues")
+    validation_errors: List[str] = Field(default_factory=list, description="Validation errors")
+    validation_warnings: List[str] = Field(default_factory=list, description="Validation warnings")
+    suggestions: List[str] = Field(default_factory=list, description="Improvement suggestions")
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "is_valid": True,
+                "total_issues": 25,
+                "valid_issues": 23,
+                "validation_errors": [],
+                "validation_warnings": ["2 issues missing acceptance criteria"],
+                "suggestions": ["Consider adding more detailed descriptions"]
             }
         }
     ) 

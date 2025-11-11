@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 import httpx
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timezone
@@ -16,13 +17,18 @@ from .models.schemas import (
     Epic,
     UserStory,
     AcceptanceCriteria,
-    StoryPointEstimate
+    StoryPointEstimate,
+    DesignDocumentProcessingRequest,
+    DesignDocumentProcessingResponse,
+    DevelopmentIssue,
+    IssueValidationResult
 )
 from .services.document_orchestrator import DocumentOrchestrator
 from .services.document_parser import DocumentParser
 from .services.story_enhancer import StoryEnhancer
 from .services.ollama_client import OllamaClient
 from .services.nlp_pipeline import NLPPipeline
+from .services.design_document_processor import DesignDocumentProcessor
 from .database import MongoDB
 from .core.config import config
 
@@ -32,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 document_orchestrator = None
+design_document_processor = None
 ollama_client = None
 nlp_pipeline = None
 mongodb = None
@@ -39,7 +46,7 @@ mongodb = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    global document_orchestrator, ollama_client, nlp_pipeline, mongodb
+    global document_orchestrator, design_document_processor, ollama_client, nlp_pipeline, mongodb
     
     logger.info("Starting AI Processor Service...")
     
@@ -67,7 +74,10 @@ async def lifespan(app: FastAPI):
         database=mongodb
     )
     
-    logger.info("AI Processor Service started successfully with clean architecture")
+    # Initialize design document processor
+    design_document_processor = DesignDocumentProcessor(ollama_client)
+    
+    logger.info("AI Processor Service started successfully with clean architecture and design document processing")
     yield
     
     # Shutdown
@@ -99,6 +109,11 @@ def get_ollama_client():
     if ollama_client is None:
         raise HTTPException(status_code=500, detail="Ollama client not initialized")
     return ollama_client
+
+def get_design_document_processor():
+    if design_document_processor is None:
+        raise HTTPException(status_code=500, detail="Design document processor not initialized")
+    return design_document_processor
 
 @app.get("/health")
 async def health_check():
@@ -246,6 +261,193 @@ async def get_available_models(
     
     except Exception as e:
         logger.error(f"Error getting models: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Design Document Processing Endpoints
+
+@app.post("/process-design-document", response_model=DesignDocumentProcessingResponse)
+async def process_design_document(
+    request: DesignDocumentProcessingRequest,
+    processor: DesignDocumentProcessor = Depends(get_design_document_processor)
+):
+    """Process a design document and break it down into actionable development issues"""
+    try:
+        logger.info(f"Processing design document: {request.document_name}")
+        
+        start_time = time.time()
+        
+        # Process the design document
+        result = await processor.process_design_document(
+            content=request.content,
+            document_name=request.document_name,
+            project_id=request.project_id
+        )
+        
+        processing_time = time.time() - start_time
+        
+        # Convert result to response model
+        response = DesignDocumentProcessingResponse(
+            success=result["success"],
+            document_name=result["document_name"],
+            project_id=result.get("project_id"),
+            total_issues=result["total_issues"],
+            design_analysis=result["design_analysis"],
+            functional_areas=result["functional_areas"],
+            issues=[DevelopmentIssue(**issue) for issue in result["issues"]],
+            implementation_roadmap=result["implementation_roadmap"],
+            metadata=result["metadata"],
+            processing_time=processing_time
+        )
+        
+        logger.info(f"Design document processed successfully: {result['total_issues']} issues generated")
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error processing design document: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload-design-document", response_model=DesignDocumentProcessingResponse)
+async def upload_design_document(
+    file: UploadFile = File(...),
+    project_id: str = None,
+    processor: DesignDocumentProcessor = Depends(get_design_document_processor)
+):
+    """Upload and process a design document file"""
+    try:
+        # Read file content
+        content = await file.read()
+        
+        # Process the design document
+        result = await processor.process_design_document(
+            content=content.decode('utf-8') if isinstance(content, bytes) else content,
+            document_name=file.filename,
+            project_id=project_id
+        )
+        
+        # Convert result to response model
+        response = DesignDocumentProcessingResponse(
+            success=result["success"],
+            document_name=result["document_name"],
+            project_id=result.get("project_id"),
+            total_issues=result["total_issues"],
+            design_analysis=result["design_analysis"],
+            functional_areas=result["functional_areas"],
+            issues=[DevelopmentIssue(**issue) for issue in result["issues"]],
+            implementation_roadmap=result["implementation_roadmap"],
+            metadata=result["metadata"],
+            processing_time=0.0  # Will be calculated in the processor
+        )
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error uploading design document: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/validate-issues", response_model=IssueValidationResult)
+async def validate_issues(
+    issues: List[DevelopmentIssue]
+):
+    """Validate a list of development issues"""
+    try:
+        logger.info(f"Validating {len(issues)} issues")
+        
+        validation_errors = []
+        validation_warnings = []
+        suggestions = []
+        valid_issues = 0
+        
+        for issue in issues:
+            # Check required fields
+            if not issue.title:
+                validation_errors.append(f"Issue {issue.id}: Missing title")
+            elif len(issue.title) > 60:
+                validation_errors.append(f"Issue {issue.id}: Title too long (max 60 chars)")
+            else:
+                valid_issues += 1
+            
+            if not issue.description:
+                validation_warnings.append(f"Issue {issue.id}: Missing description")
+            
+            if not issue.acceptance_criteria:
+                validation_warnings.append(f"Issue {issue.id}: Missing acceptance criteria")
+            
+            if issue.estimated_hours <= 0:
+                validation_errors.append(f"Issue {issue.id}: Invalid estimated hours")
+            elif issue.estimated_hours > 16:
+                validation_warnings.append(f"Issue {issue.id}: Large time estimate (>16 hours)")
+        
+        # General suggestions
+        if len(issues) > 50:
+            suggestions.append("Consider breaking down into smaller batches")
+        
+        avg_hours = sum(issue.estimated_hours for issue in issues) / len(issues) if issues else 0
+        if avg_hours > 8:
+            suggestions.append("Consider breaking large issues into smaller tasks")
+        
+        result = IssueValidationResult(
+            is_valid=len(validation_errors) == 0,
+            total_issues=len(issues),
+            valid_issues=valid_issues,
+            validation_errors=validation_errors,
+            validation_warnings=validation_warnings,
+            suggestions=suggestions
+        )
+        
+        logger.info(f"Validation completed: {valid_issues}/{len(issues)} valid issues")
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error validating issues: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/issue-types")
+async def get_issue_types():
+    """Get available issue types and their descriptions"""
+    from .services.design_document_processor import DesignDocumentProcessor
+    
+    # Create a temporary instance to get issue types
+    temp_processor = DesignDocumentProcessor(None)
+    
+    return {
+        "issue_types": temp_processor.issue_types,
+        "priorities": ["high", "medium", "low"],
+        "complexity_levels": ["simple", "medium", "complex"]
+    }
+
+@app.post("/create-jira-issues")
+async def create_jira_issues(
+    issues: List[DevelopmentIssue],
+    project_key: str,
+    jira_base_url: str,
+    jira_username: str,
+    jira_api_token: str,
+    epic_name: Optional[str] = None
+):
+    """Create issues in Jira from development issues"""
+    try:
+        from .services.jira_issue_creator import create_jira_issues_from_design
+        
+        logger.info(f"Creating {len(issues)} issues in Jira project {project_key}")
+        
+        jira_config = {
+            "base_url": jira_base_url,
+            "username": jira_username,
+            "api_token": jira_api_token
+        }
+        
+        # Create issues in Jira
+        results = await create_jira_issues_from_design(
+            issues=issues,
+            jira_config=jira_config,
+            project_key=project_key,
+            epic_name=epic_name
+        )
+        
+        return results
+    
+    except Exception as e:
+        logger.error(f"Error creating Jira issues: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 def main():
